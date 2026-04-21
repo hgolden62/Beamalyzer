@@ -1,5 +1,7 @@
 # Beamalyzer
 
+### ▶︎ [Try the live demo — hgolden62.github.io/Beamalyzer](https://hgolden62.github.io/Beamalyzer/)
+
 Interactive steel W-shape analyzer per **AISC 360-22**, ASD method. Pick a section, set span, load, and support condition, and see live flexural and deflection demand/capacity ratios, smart sizing suggestions, and a photoelastic isochromatic stress field alongside moment, shear, and deflection diagrams. Exports a full calculation PDF.
 
 ## Features
