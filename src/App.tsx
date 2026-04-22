@@ -34,7 +34,8 @@ export default function App() {
   }, [loadCase])
 
   useEffect(() => {
-    if (support === 'cantilever' && loadCase !== 'udl') setLoadCase('udl')
+    // third-points is not a standard cantilever configuration; fall back to UDL.
+    if (support === 'cantilever' && loadCase === 'third_points') setLoadCase('udl')
   }, [support, loadCase])
 
   const results = useMemo(
@@ -93,7 +94,7 @@ export default function App() {
     return { kind: 'ok' as const, name: '', text: 'Selection is efficient for this loading.' }
   }, [designation, safeL_ft, loadCase, support, safeLoadMag, deflectionLimit, results])
 
-  const efficiency = Math.min(1, Math.max(results.flexureDCR, results.deflectionDCR))
+  const efficiency = Math.min(1, Math.max(results.flexureDCR, results.shearDCR, results.deflectionDCR))
   const effColor =
     efficiency < 0.7 ? 'var(--success)' : efficiency < 0.9 ? 'var(--warning)' : 'var(--failure)'
 
@@ -207,11 +208,14 @@ export default function App() {
                 <label className="field-label">
                   Load Type
                   <select className="glass-input" value={loadCase}
-                    onChange={(e) => setLoadCase(e.target.value as LoadCase)}
-                    disabled={support === 'cantilever'}>
+                    onChange={(e) => setLoadCase(e.target.value as LoadCase)}>
                     <option value="udl">Uniform Distributed Load (UDL)</option>
-                    <option value="point_mid" disabled={support === 'cantilever'}>Point Load @ Midspan</option>
-                    <option value="third_points" disabled={support === 'cantilever'}>Two Loads @ Third-Points</option>
+                    <option value="point_mid">
+                      {support === 'cantilever' ? 'Point Load @ Free End' : 'Point Load @ Midspan'}
+                    </option>
+                    <option value="third_points" disabled={support === 'cantilever'}>
+                      Two Loads @ Third-Points
+                    </option>
                   </select>
                 </label>
                 <label className="field-label">
@@ -255,8 +259,10 @@ export default function App() {
 
             <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
               <strong style={{ color: 'var(--text)' }}>Assumptions:</strong> compact section,
-              full lateral bracing (Lb = 0, no LTB), A992 steel, ASD. Self-weight of beam not
-              added to applied load.
+              full lateral bracing (Lb = 0, no LTB), A992 steel, ASD. Flexure per Ch. F
+              (Ω_b = 1.67); shear per Ch. G with C_v1 = 1 and Ω_v = 1.5 (all catalog
+              sections satisfy h/t_w ≤ 2.24√(E/F_y)). Self-weight of beam not added to
+              applied load. Cantilever "point load" is applied at the free end.
             </p>
           </motion.div>
 
@@ -357,7 +363,8 @@ export default function App() {
                 primaryLabel="M_a (ASD)"
                 rows={[
                   { k: 'M_n', v: fmt.moment(results.Mn_kipft) },
-                  { k: 'Ω_b', v: '1.67' },
+                  { k: 'V_a (ASD)', v: fmt.shear(results.Va_kip) },
+                  { k: 'Ω_b / Ω_v', v: '1.67 / 1.50' },
                   { k: 'δ_allow', v: fmt.deflect(results.delta_allow_in) },
                 ]}
                 delay={0.16}
@@ -368,6 +375,7 @@ export default function App() {
                 primaryLabel="Flexure DCR"
                 accent={efficiency < 0.7 ? 'var(--success)' : efficiency < 0.9 ? 'var(--warning)' : 'var(--failure)'}
                 rows={[
+                  { k: 'Shear DCR', v: results.shearDCR.toFixed(2) },
                   { k: 'Deflection DCR', v: results.deflectionDCR.toFixed(2) },
                   { k: 'L/Δ', v: isFinite(L_over) ? `L/${Math.round(L_over)}` : '—' },
                   { k: 'Beam wt', v: units === 'imperial' ? `${formatNum(totalWeight_lb)} lb` : `${formatNum(totalWeight_lb * 0.4536)} kg` },
@@ -379,6 +387,7 @@ export default function App() {
             <motion.div className="glass" style={{ padding: 24 }} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.28 }}>
               <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
                 <FlipPill passing={results.flexureDCR <= 1} label={`Flexure ${results.flexureDCR.toFixed(2)}`} />
+                <FlipPill passing={results.shearDCR <= 1} label={`Shear ${results.shearDCR.toFixed(2)}`} />
                 <FlipPill passing={results.deflectionDCR <= 1} label={`Deflection ${results.deflectionDCR.toFixed(2)}`} />
                 <div style={{ flex: 1, minWidth: 180 }}>
                   <div className="caps" style={{ color: 'var(--text-muted)', marginBottom: 8 }}>

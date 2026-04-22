@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf'
 import type { WShape } from './sections'
 import type { Results, LoadCase, Support } from './calc'
-import { Fy, E, OMEGA_B, toMetric, formatNum } from './calc'
+import { Fy, E, OMEGA_B, OMEGA_V, toMetric, formatNum } from './calc'
 
 type Units = 'imperial' | 'metric'
 
@@ -187,7 +187,7 @@ export async function exportReport(p: Params): Promise<void> {
     ['Load Magnitude', `${formatNum(loadVal)} ${loadUnit}`],
     ['Deflection Limit', `L / ${deflectionLimit}`],
     ['Steel Grade', `A992 - Fy = ${Fy} ksi, E = ${E.toLocaleString()} ksi`],
-    ['Safety Factor', `Omega_b = ${OMEGA_B} (ASD flexure)`],
+    ['Safety Factors', `Omega_b = ${OMEGA_B} (flexure) / Omega_v = ${OMEGA_V} (shear)`],
   ]
 
   inputs.forEach((row, i) => {
@@ -217,11 +217,14 @@ export async function exportReport(p: Params): Promise<void> {
     ['M_max (demand)', fmt.moment(results.M_max_kipft), ''],
     ['M_a  (allowable)', fmt.moment(results.Ma_kipft), ''],
     ['M_n  (nominal)', fmt.moment(results.Mn_kipft), ''],
-    ['V_max', fmt.shear(results.V_max_kip), ''],
+    ['V_max (demand)', fmt.shear(results.V_max_kip), ''],
+    ['V_a  (allowable)', fmt.shear(results.Va_kip), ''],
+    ['V_n  (nominal)', fmt.shear(results.Vn_kip), ''],
     ['sigma_max (extreme fiber)', fmt.stress(results.sigma_max_ksi), ''],
     ['delta_max', fmt.deflect(results.delta_max_in), ''],
     ['delta_allow', fmt.deflect(results.delta_allow_in), ''],
     ['Flexure DCR', results.flexureDCR.toFixed(3), results.flexureDCR <= 1 ? 'PASS' : 'FAIL'],
+    ['Shear DCR', results.shearDCR.toFixed(3), results.shearDCR <= 1 ? 'PASS' : 'FAIL'],
     ['Deflection DCR', results.deflectionDCR.toFixed(3), results.deflectionDCR <= 1 ? 'PASS' : 'FAIL'],
   ]
 
@@ -386,6 +389,16 @@ export async function exportReport(p: Params): Promise<void> {
   lines.push({ text: `     = ${Mn_kipft.toFixed(1)} / ${OMEGA_B} = ${results.Ma_kipft.toFixed(1)} kip-ft` })
   lines.push({ text: '' })
 
+  lines.push({ text: 'SHEAR STRENGTH  (AISC 360-22 Ch. G, rolled I-shape)' })
+  lines.push({ text: '  A_w = d * t_w' })
+  lines.push({ text: `      = ${section.d} * ${section.tw} = ${(section.d * section.tw).toFixed(3)} in^2` })
+  lines.push({ text: '  C_v1 = 1.0     (h/t_w <= 2.24*sqrt(E/Fy))' })
+  lines.push({ text: '  Vn = 0.6 * Fy * A_w * C_v1     (Eq. G2-1)' })
+  lines.push({ text: `     = 0.6 * ${Fy} * ${(section.d * section.tw).toFixed(3)} = ${results.Vn_kip.toFixed(1)} kip` })
+  lines.push({ text: '  Va = Vn / Omega_v' })
+  lines.push({ text: `     = ${results.Vn_kip.toFixed(1)} / ${OMEGA_V} = ${results.Va_kip.toFixed(1)} kip` })
+  lines.push({ text: '' })
+
   lines.push({ text: 'DEMAND' })
   if (support === 'simple' && loadCase === 'udl') {
     lines.push({ text: '  M_max = w * L^2 / 8' })
@@ -414,19 +427,44 @@ export async function exportReport(p: Params): Promise<void> {
     lines.push({ text: `            = 23 * ${loadMag} * ${L_in}^3` })
     lines.push({ text: `              / (648 * ${E} * ${section.Ix})` })
     lines.push({ text: `            = ${results.delta_max_in.toFixed(3)} in` })
-  } else if (support === 'fixed') {
+  } else if (support === 'fixed' && loadCase === 'udl') {
     lines.push({ text: '  M_max = w * L^2 / 12        (at supports)' })
     lines.push({ text: `        = ${loadMag} * ${L_ft}^2 / 12 = ${results.M_max_kipft.toFixed(1)} kip-ft` })
     lines.push({ text: '  V_max = w * L / 2' })
     lines.push({ text: `        = ${results.V_max_kip.toFixed(1)} kip` })
     lines.push({ text: '  delta_max = w * L^4 / (384 * E * I)' })
     lines.push({ text: `            = ${results.delta_max_in.toFixed(3)} in` })
-  } else if (support === 'cantilever') {
+  } else if (support === 'fixed' && loadCase === 'point_mid') {
+    lines.push({ text: '  M_max = P * L / 8           (at supports and midspan)' })
+    lines.push({ text: `        = ${loadMag} * ${L_ft} / 8 = ${results.M_max_kipft.toFixed(1)} kip-ft` })
+    lines.push({ text: '  V_max = P / 2' })
+    lines.push({ text: `        = ${loadMag} / 2 = ${results.V_max_kip.toFixed(1)} kip` })
+    lines.push({ text: '  delta_max = P * L^3 / (192 * E * I)' })
+    lines.push({ text: `            = ${loadMag} * ${L_in}^3` })
+    lines.push({ text: `              / (192 * ${E} * ${section.Ix})` })
+    lines.push({ text: `            = ${results.delta_max_in.toFixed(3)} in` })
+  } else if (support === 'fixed' && loadCase === 'third_points') {
+    lines.push({ text: '  M_max = 2 * P * L / 9       (hogging at supports)' })
+    lines.push({ text: `        = 2 * ${loadMag} * ${L_ft} / 9 = ${results.M_max_kipft.toFixed(1)} kip-ft` })
+    lines.push({ text: '  V_max = P' })
+    lines.push({ text: `        = ${results.V_max_kip.toFixed(1)} kip` })
+    lines.push({ text: '  delta_max = 5 * P * L^3 / (648 * E * I)     (at midspan)' })
+    lines.push({ text: `            = ${results.delta_max_in.toFixed(3)} in` })
+  } else if (support === 'cantilever' && loadCase === 'udl') {
     lines.push({ text: '  M_max = w * L^2 / 2         (at fixed end)' })
     lines.push({ text: `        = ${loadMag} * ${L_ft}^2 / 2 = ${results.M_max_kipft.toFixed(1)} kip-ft` })
     lines.push({ text: '  V_max = w * L' })
     lines.push({ text: `        = ${results.V_max_kip.toFixed(1)} kip` })
     lines.push({ text: '  delta_max = w * L^4 / (8 * E * I)   (at free end)' })
+    lines.push({ text: `            = ${results.delta_max_in.toFixed(3)} in` })
+  } else if (support === 'cantilever' && loadCase === 'point_mid') {
+    lines.push({ text: '  M_max = P * L                (at fixed end, tip load)' })
+    lines.push({ text: `        = ${loadMag} * ${L_ft} = ${results.M_max_kipft.toFixed(1)} kip-ft` })
+    lines.push({ text: '  V_max = P' })
+    lines.push({ text: `        = ${results.V_max_kip.toFixed(1)} kip` })
+    lines.push({ text: '  delta_max = P * L^3 / (3 * E * I)   (at free end)' })
+    lines.push({ text: `            = ${loadMag} * ${L_in}^3` })
+    lines.push({ text: `              / (3 * ${E} * ${section.Ix})` })
     lines.push({ text: `            = ${results.delta_max_in.toFixed(3)} in` })
   }
 
@@ -446,11 +484,18 @@ export async function exportReport(p: Params): Promise<void> {
 
   lines.push({ text: 'CHECKS' })
   lines.push({
-    text: `  Flexure DCR    = M_max / M_a`,
+    text: `  Flexure DCR    = |M_max| / M_a`,
   })
   lines.push({
-    text: `                 = ${results.M_max_kipft.toFixed(1)} / ${results.Ma_kipft.toFixed(1)} = ${results.flexureDCR.toFixed(3)}  ->  ${results.flexureDCR <= 1 ? 'PASS' : 'FAIL'}`,
+    text: `                 = ${Math.abs(results.M_max_kipft).toFixed(1)} / ${results.Ma_kipft.toFixed(1)} = ${results.flexureDCR.toFixed(3)}  ->  ${results.flexureDCR <= 1 ? 'PASS' : 'FAIL'}`,
     color: results.flexureDCR <= 1 ? col.green : col.rose,
+  })
+  lines.push({
+    text: `  Shear DCR      = |V_max| / V_a`,
+  })
+  lines.push({
+    text: `                 = ${Math.abs(results.V_max_kip).toFixed(1)} / ${results.Va_kip.toFixed(1)} = ${results.shearDCR.toFixed(3)}  ->  ${results.shearDCR <= 1 ? 'PASS' : 'FAIL'}`,
+    color: results.shearDCR <= 1 ? col.green : col.rose,
   })
   lines.push({
     text: `  Deflection DCR = delta_max / delta_allow`,
@@ -485,7 +530,7 @@ export async function exportReport(p: Params): Promise<void> {
   pdf.setFontSize(8)
   setColor(col.muted)
   text(
-    'Assumptions: compact section; full lateral bracing (Lb = 0, no LTB check); A992 steel; ASD; self-weight of beam not added. Section properties from AISC Steel Construction Manual, 16th Edition, Table 1-1.',
+    'Assumptions: compact section; full lateral bracing (Lb = 0, no LTB check); A992 steel; ASD. Flexure per Ch. F (Omega_b = 1.67). Shear per Ch. G with C_v1 = 1.0 and Omega_v = 1.5 (all catalog sections satisfy h/t_w <= 2.24*sqrt(E/Fy)). Self-weight of beam not added to applied load. Cantilever "point load" is applied at the free end. Section properties from AISC Steel Construction Manual, 16th Edition, Table 1-1.',
     M,
     y,
     { maxWidth: PW - 2 * M }

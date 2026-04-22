@@ -7,6 +7,7 @@ import type { WShape } from './sections'
 export const Fy = 50      // A992 yield stress, ksi
 export const E = 29000    // steel modulus of elasticity, ksi
 export const OMEGA_B = 1.67
+export const OMEGA_V = 1.5  // ASD shear (AISC 360-22 Sec. G1)
 
 export type LoadCase = 'udl' | 'point_mid' | 'third_points'
 export type Support = 'simple' | 'fixed' | 'cantilever'
@@ -23,22 +24,25 @@ export type Inputs = {
 
 export type Results = {
   // Demand
-  M_max_kipft: number
-  V_max_kip: number
+  M_max_kipft: number       // magnitude (sign is carried by momentAt)
+  V_max_kip: number         // magnitude
   delta_max_in: number
   // Capacity
   Mn_kipft: number      // nominal flexural strength
   Ma_kipft: number      // allowable flexural strength (ASD)
+  Vn_kip: number        // nominal shear strength
+  Va_kip: number        // allowable shear strength (ASD)
   delta_allow_in: number
   // Ratios
   flexureDCR: number
+  shearDCR: number
   deflectionDCR: number
   passes: boolean
   // Stress envelope (for viz)
   sigma_max_ksi: number
   // Moment/shear/deflection along the span, normalized x ∈ [0,1]
-  momentAt: (xFrac: number) => number       // kip-in
-  shearAt: (xFrac: number) => number        // kip
+  momentAt: (xFrac: number) => number       // kip-ft (signed)
+  shearAt: (xFrac: number) => number        // kip (signed)
   deflectionAt: (xFrac: number) => number   // in
 }
 
@@ -113,59 +117,119 @@ export function analyze(inputs: Inputs): Results {
       }
     }
   } else if (support === 'fixed') {
-    // Fixed-fixed, UDL — simplified: use fixed-end moment for demand,
-    // deflection formula for fixed-fixed UDL is w*L^4/(384*E*I)
-    const w = loadCase === 'udl' ? loadMag : loadMag / L_ft
-    M_max_kipft = (w * L_ft * L_ft) / 12 // at supports, fixed-fixed UDL
-    V_max_kip = (w * L_ft) / 2
-    momentAt = (xf) => {
-      // Fixed-fixed UDL: M(x) = w*L²/12 *(6x/L - 6x²/L² - 1) ; M(0)=M(L)= -wL²/12, M(L/2)= wL²/24
-      const ratio = xf
-      return ((w * L_ft * L_ft) / 12) * (6 * ratio - 6 * ratio * ratio - 1)
-    }
-    shearAt = (xf) => w * (L_ft / 2 - xf * L_ft)
-    const w_kpi = w / 12
-    deflectionAt = (xf) => {
-      const x = xf * L_in
-      // δ(x) = w*x²*(L-x)² / (24*E*I) for fixed-fixed UDL
-      return (w_kpi * x * x * Math.pow(L_in - x, 2)) / (24 * E * Ix)
+    if (loadCase === 'udl') {
+      const w = loadMag // klf
+      M_max_kipft = (w * L_ft * L_ft) / 12 // at supports
+      V_max_kip = (w * L_ft) / 2
+      momentAt = (xf) => {
+        // M(0)=M(L)= -wL²/12, M(L/2)= +wL²/24
+        return ((w * L_ft * L_ft) / 12) * (6 * xf - 6 * xf * xf - 1)
+      }
+      shearAt = (xf) => w * (L_ft / 2 - xf * L_ft)
+      const w_kpi = w / 12
+      deflectionAt = (xf) => {
+        const x = xf * L_in
+        return (w_kpi * x * x * Math.pow(L_in - x, 2)) / (24 * E * Ix)
+      }
+    } else if (loadCase === 'point_mid') {
+      const P = loadMag // kip
+      M_max_kipft = (P * L_ft) / 8
+      V_max_kip = P / 2
+      momentAt = (xf) => {
+        // M = -PL/8 + Px/2 on [0, L/2]; symmetric on the other half
+        const x = (xf <= 0.5 ? xf : 1 - xf) * L_ft
+        return -(P * L_ft) / 8 + (P * x) / 2
+      }
+      shearAt = (xf) => (xf < 0.5 ? P / 2 : -P / 2)
+      deflectionAt = (xf) => {
+        // δ(x) = P·x²·(3L − 4x)/(48EI) for 0 ≤ x ≤ L/2; mirror for x > L/2
+        let x = xf * L_in
+        if (x > L_in / 2) x = L_in - x
+        return (P * x * x * (3 * L_in - 4 * x)) / (48 * E * Ix)
+      }
+    } else {
+      // third_points: two equal loads P at L/3 and 2L/3
+      const P = loadMag
+      M_max_kipft = (2 * P * L_ft) / 9 // hogging at supports
+      V_max_kip = P
+      momentAt = (xf) => {
+        const x = xf * L_ft
+        if (x <= L_ft / 3) return P * x - (2 * P * L_ft) / 9
+        if (x <= (2 * L_ft) / 3) return (P * L_ft) / 9
+        const xm = L_ft - x
+        return P * xm - (2 * P * L_ft) / 9
+      }
+      shearAt = (xf) => {
+        if (xf < 1 / 3) return P
+        if (xf < 2 / 3) return 0
+        return -P
+      }
+      // δ_max = 5PL³/(648EI) at midspan; sinusoidal approximation for shape
+      const deltaMid = (5 * P * Math.pow(L_in, 3)) / (648 * E * Ix)
+      deflectionAt = (xf) => deltaMid * Math.sin(Math.PI * xf)
     }
   } else {
-    // cantilever, UDL; max moment at fixed end
-    const w = loadCase === 'udl' ? loadMag : loadMag / L_ft
-    M_max_kipft = (w * L_ft * L_ft) / 2
-    V_max_kip = w * L_ft
-    momentAt = (xf) => {
-      // fixed end at xf=0, free at xf=1; moment = -w*(L-x)²/2 (negative = tension top)
-      const x = xf * L_ft
-      return -((w * Math.pow(L_ft - x, 2)) / 2)
-    }
-    shearAt = (xf) => w * (L_ft - xf * L_ft)
-    const w_kpi = w / 12
-    deflectionAt = (xf) => {
-      const x = xf * L_in
-      // δ(x) = w*x²*(6L² - 4Lx + x²) / (24*E*I)
-      return (w_kpi * x * x * (6 * L_in * L_in - 4 * L_in * x + x * x)) / (24 * E * Ix)
+    // cantilever: fixed end at xf=0, free end at xf=1
+    if (loadCase === 'udl') {
+      const w = loadMag // klf
+      M_max_kipft = (w * L_ft * L_ft) / 2 // magnitude at fixed end
+      V_max_kip = w * L_ft
+      momentAt = (xf) => {
+        const x = xf * L_ft
+        return -((w * Math.pow(L_ft - x, 2)) / 2)
+      }
+      shearAt = (xf) => w * (L_ft - xf * L_ft)
+      const w_kpi = w / 12
+      deflectionAt = (xf) => {
+        const x = xf * L_in
+        return (w_kpi * x * x * (6 * L_in * L_in - 4 * L_in * x + x * x)) / (24 * E * Ix)
+      }
+    } else {
+      // Point load P at the free end. For cantilevers, `point_mid` is
+      // interpreted as a tip load; `third_points` is not a standard
+      // cantilever config and is disabled in the UI — treat any point
+      // case as a tip load defensively.
+      const P = loadMag
+      M_max_kipft = P * L_ft // magnitude at fixed end
+      V_max_kip = P
+      momentAt = (xf) => {
+        const x = xf * L_ft
+        return -(P * (L_ft - x))
+      }
+      shearAt = () => P
+      deflectionAt = (xf) => {
+        const x = xf * L_in
+        return (P * x * x * (3 * L_in - x)) / (6 * E * Ix)
+      }
     }
   }
 
   // Deflection demand
   const delta_max_in = Math.abs(deflectionAt(support === 'cantilever' ? 1 : 0.5))
 
-  // Capacity: M_n = Fy * Zx (kip-in); convert to kip-ft
+  // Flexural capacity: M_n = Fy * Zx (kip-in); convert to kip-ft
   const Mn_kipin = Fy * Zx
   const Mn_kipft = Mn_kipin / 12
   const Ma_kipft = Mn_kipft / OMEGA_B
 
+  // Shear capacity — AISC 360-22 Ch. G, rolled I-shape.
+  // A_w = d * t_w  (Eq. G2-1)
+  // For every W-shape in this catalog, h/t_w ≤ 2.24·√(E/Fy) ≈ 53.9,
+  // so C_v1 = 1.0 and Ω_v = 1.5 (ASD).
+  const Aw = d * section.tw
+  const Vn_kip = 0.6 * Fy * Aw // C_v1 = 1
+  const Va_kip = Vn_kip / OMEGA_V
+
   // Deflection allowed
   const delta_allow_in = L_in / deflectionLimit
 
-  const flexureDCR = M_max_kipft / Ma_kipft
+  const flexureDCR = Math.abs(M_max_kipft) / Ma_kipft
+  const shearDCR = Math.abs(V_max_kip) / Va_kip
   const deflectionDCR = delta_max_in / delta_allow_in
-  const passes = flexureDCR <= 1.0 && deflectionDCR <= 1.0
+  const passes = flexureDCR <= 1.0 && shearDCR <= 1.0 && deflectionDCR <= 1.0
 
   // Max bending stress at extreme fiber (kip-in * in / in⁴ = ksi)
-  const sigma_max_ksi = (M_max_kipft * 12 * (d / 2)) / Ix
+  const sigma_max_ksi = (Math.abs(M_max_kipft) * 12 * (d / 2)) / Ix
 
   return {
     M_max_kipft,
@@ -173,8 +237,11 @@ export function analyze(inputs: Inputs): Results {
     delta_max_in,
     Mn_kipft,
     Ma_kipft,
+    Vn_kip,
+    Va_kip,
     delta_allow_in,
     flexureDCR,
+    shearDCR,
     deflectionDCR,
     passes,
     sigma_max_ksi,
