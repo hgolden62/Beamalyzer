@@ -7,7 +7,14 @@ import type { WShape } from './sections'
 export const Fy = 50      // A992 yield stress, ksi
 export const E = 29000    // steel modulus of elasticity, ksi
 export const OMEGA_B = 1.67
-export const OMEGA_V = 1.5  // ASD shear (AISC 360-22 Sec. G1)
+
+// AISC 360-22 Ch. G shear safety factors (ASD).
+// Rolled I-shapes with h/t_w ≤ 2.24·√(E/F_y) get the stocky-web provision:
+// C_v1 = 1.0, Ω_v = 1.5. Otherwise Ω_v = 1.67 (C_v1 still = 1.0 as long as
+// h/t_w ≤ 1.10·√(5.34·E/F_y) ≈ 61.2, which all sections in this catalog satisfy).
+export const OMEGA_V_STOCKY = 1.5
+export const OMEGA_V_STD = 1.67
+export const H_TW_STOCKY_LIMIT = 2.24 * Math.sqrt(E / Fy) // ≈ 53.95
 
 export type LoadCase = 'udl' | 'point_mid' | 'third_points'
 export type Support = 'simple' | 'fixed' | 'cantilever'
@@ -32,6 +39,7 @@ export type Results = {
   Ma_kipft: number      // allowable flexural strength (ASD)
   Vn_kip: number        // nominal shear strength
   Va_kip: number        // allowable shear strength (ASD)
+  omegaV: number        // shear safety factor actually applied (1.5 or 1.67)
   delta_allow_in: number
   // Ratios
   flexureDCR: number
@@ -213,12 +221,13 @@ export function analyze(inputs: Inputs): Results {
   const Ma_kipft = Mn_kipft / OMEGA_B
 
   // Shear capacity — AISC 360-22 Ch. G, rolled I-shape.
-  // A_w = d * t_w  (Eq. G2-1)
-  // For every W-shape in this catalog, h/t_w ≤ 2.24·√(E/Fy) ≈ 53.9,
-  // so C_v1 = 1.0 and Ω_v = 1.5 (ASD).
+  // A_w = d * t_w  (Eq. G2-1). V_n = 0.6·F_y·A_w·C_v1.
+  // C_v1 = 1.0 holds for all catalog sections (max h/t_w = 56.8 < 61.2);
+  // Ω_v depends on whether the web meets the stocky-web provision.
   const Aw = d * section.tw
   const Vn_kip = 0.6 * Fy * Aw // C_v1 = 1
-  const Va_kip = Vn_kip / OMEGA_V
+  const omega_v = section.h_tw <= H_TW_STOCKY_LIMIT ? OMEGA_V_STOCKY : OMEGA_V_STD
+  const Va_kip = Vn_kip / omega_v
 
   // Deflection allowed
   const delta_allow_in = L_in / deflectionLimit
@@ -239,6 +248,7 @@ export function analyze(inputs: Inputs): Results {
     Ma_kipft,
     Vn_kip,
     Va_kip,
+    omegaV: omega_v,
     delta_allow_in,
     flexureDCR,
     shearDCR,

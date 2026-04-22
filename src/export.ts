@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf'
 import type { WShape } from './sections'
 import type { Results, LoadCase, Support } from './calc'
-import { Fy, E, OMEGA_B, OMEGA_V, toMetric, formatNum } from './calc'
+import { Fy, E, OMEGA_B, toMetric, formatNum } from './calc'
 
 type Units = 'imperial' | 'metric'
 
@@ -187,7 +187,7 @@ export async function exportReport(p: Params): Promise<void> {
     ['Load Magnitude', `${formatNum(loadVal)} ${loadUnit}`],
     ['Deflection Limit', `L / ${deflectionLimit}`],
     ['Steel Grade', `A992 - Fy = ${Fy} ksi, E = ${E.toLocaleString()} ksi`],
-    ['Safety Factors', `Omega_b = ${OMEGA_B} (flexure) / Omega_v = ${OMEGA_V} (shear)`],
+    ['Safety Factors', `Omega_b = ${OMEGA_B} (flexure) / Omega_v = ${results.omegaV} (shear)`],
   ]
 
   inputs.forEach((row, i) => {
@@ -392,11 +392,13 @@ export async function exportReport(p: Params): Promise<void> {
   lines.push({ text: 'SHEAR STRENGTH  (AISC 360-22 Ch. G, rolled I-shape)' })
   lines.push({ text: '  A_w = d * t_w' })
   lines.push({ text: `      = ${section.d} * ${section.tw} = ${(section.d * section.tw).toFixed(3)} in^2` })
-  lines.push({ text: '  C_v1 = 1.0     (h/t_w <= 2.24*sqrt(E/Fy))' })
+  const stockyOK = section.h_tw <= 53.95
+  lines.push({ text: `  h/t_w = ${section.h_tw}   ${stockyOK ? '<=' : '>'} 2.24*sqrt(E/Fy) = 53.95` })
+  lines.push({ text: `  C_v1 = 1.0,  Omega_v = ${results.omegaV}  (${stockyOK ? 'stocky-web provision, G2.1(b)(i)' : 'G2.1(b)(ii)'})` })
   lines.push({ text: '  Vn = 0.6 * Fy * A_w * C_v1     (Eq. G2-1)' })
   lines.push({ text: `     = 0.6 * ${Fy} * ${(section.d * section.tw).toFixed(3)} = ${results.Vn_kip.toFixed(1)} kip` })
   lines.push({ text: '  Va = Vn / Omega_v' })
-  lines.push({ text: `     = ${results.Vn_kip.toFixed(1)} / ${OMEGA_V} = ${results.Va_kip.toFixed(1)} kip` })
+  lines.push({ text: `     = ${results.Vn_kip.toFixed(1)} / ${results.omegaV} = ${results.Va_kip.toFixed(1)} kip` })
   lines.push({ text: '' })
 
   lines.push({ text: 'DEMAND' })

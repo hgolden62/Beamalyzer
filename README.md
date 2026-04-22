@@ -9,7 +9,7 @@ Interactive steel W-shape analyzer per **AISC 360-22**, ASD method. Pick a secti
 - **35 W-shapes** from AISC *Steel Construction Manual*, 16th Edition, Table 1-1 (W8×10 through W24×103)
 - **Loading cases**: uniform distributed load, point load at midspan (or free end for cantilevers), two equal point loads at third-points
 - **Support conditions**: simply supported, fixed-fixed, cantilever
-- **Live calculations**: M<sub>max</sub>, V<sub>max</sub>, δ<sub>max</sub>, σ<sub>max</sub> (extreme fiber), M<sub>n</sub> = F<sub>y</sub>·Z<sub>x</sub>, M<sub>a</sub> = M<sub>n</sub>/Ω<sub>b</sub> (Ω<sub>b</sub> = 1.67), V<sub>n</sub> = 0.6·F<sub>y</sub>·A<sub>w</sub>, V<sub>a</sub> = V<sub>n</sub>/Ω<sub>v</sub> (Ω<sub>v</sub> = 1.5)
+- **Live calculations**: M<sub>max</sub>, V<sub>max</sub>, δ<sub>max</sub>, σ<sub>max</sub> (extreme fiber), M<sub>n</sub> = F<sub>y</sub>·Z<sub>x</sub>, M<sub>a</sub> = M<sub>n</sub>/Ω<sub>b</sub> (Ω<sub>b</sub> = 1.67), V<sub>n</sub> = 0.6·F<sub>y</sub>·A<sub>w</sub>, V<sub>a</sub> = V<sub>n</sub>/Ω<sub>v</sub> (Ω<sub>v</sub> = 1.5 for stocky webs, 1.67 otherwise — per AISC 360-22 G2.1)
 - **Four visualizations** from the same underlying stress state:
   - Bending moment diagram with peak callout
   - Shear diagram with peak callout
@@ -64,7 +64,7 @@ The calculations use standard simplifying assumptions that are documented in the
 - **Full lateral bracing** (L<sub>b</sub> = 0) — no lateral-torsional buckling check
 - **A992 steel** only — F<sub>y</sub> = 50 ksi, F<sub>u</sub> = 65 ksi, E = 29,000 ksi
 - **ASD** — no LRFD load factors
-- **Shear check** per AISC 360-22 Ch. G (Eq. G2-1) with A<sub>w</sub> = d·t<sub>w</sub>, C<sub>v1</sub> = 1.0, and Ω<sub>v</sub> = 1.5. All catalog W-shapes satisfy h/t<sub>w</sub> ≤ 2.24·√(E/F<sub>y</sub>) ≈ 53.9.
+- **Shear check** per AISC 360-22 Ch. G (Eq. G2-1) with A<sub>w</sub> = d·t<sub>w</sub> and C<sub>v1</sub> = 1.0 (all catalog sections have h/t<sub>w</sub> ≤ 56.8, well below the 1.10·√(5.34·E/F<sub>y</sub>) ≈ 61.2 limit). Ω<sub>v</sub> is applied per-section: **1.5** when h/t<sub>w</sub> ≤ 2.24·√(E/F<sub>y</sub>) ≈ 53.95 (stocky-web provision, G2.1(b)(i)), **1.67** otherwise (G2.1(b)(ii)). Three sections in the catalog — W12×14, W16×26, W24×55 — fall into the second group.
 - **Self-weight of the beam is not added** to the applied load
 - For cantilevers, the "point load" case is applied at the **free end** (not midspan)
 

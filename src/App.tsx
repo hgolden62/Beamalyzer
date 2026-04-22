@@ -260,9 +260,10 @@ export default function App() {
             <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
               <strong style={{ color: 'var(--text)' }}>Assumptions:</strong> compact section,
               full lateral bracing (Lb = 0, no LTB), A992 steel, ASD. Flexure per Ch. F
-              (Ω_b = 1.67); shear per Ch. G with C_v1 = 1 and Ω_v = 1.5 (all catalog
-              sections satisfy h/t_w ≤ 2.24√(E/F_y)). Self-weight of beam not added to
-              applied load. Cantilever "point load" is applied at the free end.
+              (Ω_b = 1.67); shear per Ch. G with C_v1 = 1 and Ω_v = 1.5 for stocky webs
+              (h/t_w ≤ 2.24√(E/F_y) ≈ 53.95) or Ω_v = 1.67 otherwise — branched per
+              selected section. Self-weight of beam not added to applied load.
+              Cantilever "point load" is applied at the free end.
             </p>
           </motion.div>
 
@@ -364,7 +365,7 @@ export default function App() {
                 rows={[
                   { k: 'M_n', v: fmt.moment(results.Mn_kipft) },
                   { k: 'V_a (ASD)', v: fmt.shear(results.Va_kip) },
-                  { k: 'Ω_b / Ω_v', v: '1.67 / 1.50' },
+                  { k: 'Ω_b / Ω_v', v: `1.67 / ${results.omegaV.toFixed(2)}` },
                   { k: 'δ_allow', v: fmt.deflect(results.delta_allow_in) },
                 ]}
                 delay={0.16}
